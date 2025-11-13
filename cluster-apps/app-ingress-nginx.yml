@@ -1,0 +1,30 @@
+# app-ingress-nginx.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # O Chart Helm oficial do Nginx
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    targetRevision: 4.10.1
+    chart: ingress-nginx
+    helm:
+      values: |
+        # Nossa customização: Diga ao serviço para usar o MetalLB
+        controller:
+          service:
+            type: LoadBalancer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress-nginx
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

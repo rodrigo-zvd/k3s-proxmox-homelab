@@ -1,0 +1,45 @@
+# app-argocd.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # O repositório oficial do ArgoCD
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: 7.3.11
+    chart: argo-cd
+    helm:
+      values: |
+        # Nossas customizações:
+        server:
+          # Define o serviço como LoadBalancer
+          service:
+            type: LoadBalancer
+            # Você pode até sugerir um IP (opcional)
+            # loadBalancerIP: "172.20.1.61"
+          
+          # Desabilita o Ingress que não funcionou
+          ingress:
+            enabled: false
+            
+        # Pega a senha que já existe em vez de gerar uma nova
+        configs:
+          secret:
+            create: false
+            # O nome do secret que o k3s já criou
+            name: argocd-initial-admin-secret
+            
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
