@@ -1,0 +1,78 @@
+# ansible/templates/kube-vip.yml.j2
+#
+# --- VERSION 3 (FINAL FIX) ---
+# This version correctly mounts the K3s admin config file
+# (k3s.yaml) from the host into the static pod.
+#
+# It also sets the KUBECONFIG env var to tell kube-vip
+# to use this file, preventing the 'InClusterConfig'
+# panic (missing service account token).
+#
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  name: kube-vip
+  namespace: kube-system
+spec:
+  containers:
+  - args:
+    - manager
+    env:
+    - name: vip_arp
+      value: "true"
+    - name: vip_interface
+      value: "{{ k3s_network_iface }}"
+    - name: port
+      value: "6443"
+    - name: vip_cidr
+      value: "32"
+    - name: cp_enable
+      value: "true"
+    - name: cp_namespace
+      value: "kube-system"
+    - name: vip_address
+      value: "{{ k3s_vip_address }}"
+    - name: vip_leaderelection
+      value: "true"
+    - name: vip_leasename
+      value: "plunder-leader"
+    - name: lb_enable
+      value: "false" # We will use MetalLB for this later
+    
+    # --- FIX ---
+    # Tell kube-vip to use the mounted admin config
+    - name: KUBECONFIG
+      value: "/etc/kubernetes/admin.conf" # This is the path INSIDE the container
+    
+    image: ghcr.io/kube-vip/kube-vip:v0.8.0
+    imagePullPolicy: IfNotPresent
+    name: kube-vip
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - NET_ADMIN
+        - NET_RAW
+        - SYS_TIME
+    
+    # --- FIX ---
+    # Mount the config file into the container
+    volumeMounts:
+    - mountPath: /etc/kubernetes/admin.conf # Mount it at the standard path
+      name: kubeconfig
+  
+  hostNetwork: true
+  hostAliases:
+  - ip: "127.0.0.1"
+    hostnames:
+    - "kubernetes"
+  
+  # --- FIX ---
+  # Define the hostPath volume pointing to the CORRECT K3s config
+  volumes:
+  - hostPath:
+      path: /etc/rancher/k3s/k3s.yaml # This is the REAL path on the K3s host
+    name: kubeconfig
+status: {}

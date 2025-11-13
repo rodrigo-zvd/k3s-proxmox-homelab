@@ -1,0 +1,6 @@
+# 01-nginx-namespace.yml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ingress-nginx

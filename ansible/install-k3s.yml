@@ -1,0 +1,144 @@
+---
+- name: "Play 1: Prepare all K3s nodes"
+  hosts: k3s_cluster
+  gather_facts: yes
+  tasks:
+    - name: "Update apt cache"
+      ansible.builtin.apt:
+        update_cache: yes
+      changed_when: false # Don't report this as a change
+
+    - name: "Install required packages (curl, etc)"
+      ansible.builtin.apt:
+        name:
+          - curl
+          - vim
+          - wget
+        state: present
+    
+    - name: "Load required kernel modules"
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+    
+    - name: "Set required sysctl params for Kubernetes"
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_set: yes
+        state: present
+        reload: yes
+      loop:
+        - { key: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { key: 'net.ipv4.ip_forward', value: '1' }
+        - { key: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+
+- name: "Play 2: Bootstrap Kube-Vip (Control Plane VIP)"
+  hosts: k3s_cluster
+  tasks:
+    - name: "Create K3s static pod manifest directory"
+      ansible.builtin.file:
+        path: /var/lib/rancher/k3s/agent/pod-manifests
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Template the Kube-Vip static pod manifest"
+      ansible.builtin.template:
+        src: templates/kube-vip.yml.j2
+        dest: /var/lib/rancher/k3s/agent/pod-manifests/kube-vip.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: "Play 3: Install K3s on Primary Control Plane node"
+  hosts: k3s_control_plane_primary
+  tasks:
+    - name: "Install K3s on primary node"
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          INSTALL_K3S_EXEC=" \
+            server \
+            --cluster-init \
+            --tls-san {{ k3s_vip_address }} \
+            --node-ip {{ ansible_host }} \
+            --advertise-address {{ ansible_host }} \
+            --flannel-iface {{ k3s_network_iface }} \
+            --disable servicelb \
+            --disable traefik" \
+          sh -s -
+      register: k3s_primary_install
+      changed_when: k3s_primary_install.rc == 0
+
+- name: "Play 4: Get K3s cluster token"
+  hosts: k3s_control_plane_primary
+  tasks:
+    - name: "Wait for node-token to be created"
+      ansible.builtin.wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+        timeout: 60
+    
+    - name: "Read node-token from primary node"
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_slurp
+    
+    - name: "Set k3s_token fact"
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token_slurp.content | b64decode | trim }}"
+        cacheable: yes
+
+- name: "Play 5: Install K3s on Secondary Control Plane nodes"
+  hosts: k3s_control_plane_secondary
+  serial: 1
+  tasks:
+    - name: "Install K3s on secondary nodes"
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          K3S_URL="https://{{ k3s_vip_address }}:6443" \
+          K3S_TOKEN="{{ hostvars[groups['k3s_control_plane_primary'][0]].k3s_token }}" \
+          INSTALL_K3S_EXEC=" \
+            server \
+            --tls-san {{ k3s_vip_address }} \
+            --node-ip {{ ansible_host }} \
+            --advertise-address {{ ansible_host }} \
+            --flannel-iface {{ k3s_network_iface }} \
+            --disable servicelb \
+            --disable traefik" \
+          sh -s -
+      register: k3s_secondary_install
+      changed_when: k3s_secondary_install.rc == 0
+
+- name: "Play 6: Fetch Kubeconfig"
+  hosts: k3s_control_plane_primary
+  tasks:
+    - name: "Fetch kubeconfig file from primary node"
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "build/k3s-{{ k3s_cluster_name }}.yaml"
+        flat: yes
+
+    - name: "Replace 127.0.0.1 with VIP in local kubeconfig"
+      become: false
+      ansible.builtin.replace:
+        path: "build/k3s-{{ k3s_cluster_name }}.yaml"
+        regexp: '127\.0\.0\.1'
+        replace: "{{ k3s_vip_address }}"
+      delegate_to: localhost
+    
+    - name: "Display Kubeconfig info"
+      ansible.builtin.debug:
+        msg: |
+          Kubeconfig file saved to: build/k3s-{{ k3s_cluster_name }}.yaml
+          
+          To use it, run:
+          export KUBECONFIG=$(pwd)/build/k3s-{{ k3s_cluster_name }}.yaml
+          
+          Then check nodes:
+          kubectl get nodes

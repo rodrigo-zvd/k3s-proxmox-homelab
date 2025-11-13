@@ -1,0 +1,47 @@
+---
+# This playbook bootstraps the Proxmox API user and token
+# required for Terraform automation.
+#
+# !! This version is specifically for Proxmox 9.0+ !!
+#
+- name: Bootstrap Proxmox API for Terraform
+  hosts: proxmox_hosts
+  become: true
+  gather_facts: false
+  vars:
+    proxmox_role: "TerraformProv"
+    proxmox_user: "terraform-user@pve"
+    proxmox_token_id: "terraform-token"
+    proxmox_privs: "Datastore.AllocateSpace,Datastore.AllocateTemplate,Datastore.Audit,Pool.Allocate,Sys.Audit,Sys.Console,Sys.Modify,VM.Allocate,VM.Audit,VM.Clone,VM.Config.CDROM,VM.Config.Cloudinit,VM.Config.CPU,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Migrate,VM.PowerMgmt,SDN.Use"
+
+  tasks:
+    - name: "Ensure Role {{ proxmox_role }} exists (Proxmox 9+)"
+      ansible.builtin.shell: "pveum role add {{ proxmox_role }} --privs '{{ proxmox_privs }}'"
+      register: role_create
+      failed_when: "role_create.rc != 0 and 'already exists' not in role_create.stderr"
+      changed_when: "role_create.rc == 0"
+
+    - name: "Ensure User {{ proxmox_user }} exists"
+      ansible.builtin.shell: "pveum user add {{ proxmox_user }} --comment 'Terraform Automation User'"
+      register: user_create
+      failed_when: "user_create.rc != 0 and 'already exists' not in user_create.stderr"
+      changed_when: "user_create.rc == 0"
+
+    - name: "Set ACL for User {{ proxmox_user }} at /"
+      ansible.builtin.shell: "pveum aclmod / -user {{ proxmox_user }} -role {{ proxmox_role }}"
+      register: acl_set
+      failed_when: "acl_set.rc != 0 and 'already exists' not in acl_set.stderr"
+      changed_when: "acl_set.rc == 0"
+
+    - name: "Create API Token {{ proxmox_token_id }}"
+      ansible.builtin.shell: "pveum user token add {{ proxmox_user }} {{ proxmox_token_id }} --privsep=0 --output-format json"
+      register: token_create
+      failed_when: "token_create.rc != 0 and 'already exists' not in token_create.stderr"
+      changed_when: "token_create.rc == 0"
+
+    - name: "!!! CRITICAL: Store this Token Secret !!! (FINAL FIX)"
+      ansible.builtin.debug:
+        msg: |
+          Terraform API Token ID: {{ token_create.stdout['full-tokenid'] }}
+          Terraform API Token Secret: {{ token_create.stdout.value }}
+      when: token_create.changed # Only show the secret on creation

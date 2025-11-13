@@ -1,0 +1,15 @@
+# .gitignore
+
+# Terraform
+*.tfvars
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Ansible
+*.vault
+inventory.ini
+
+# Generic
+.DS_Store
