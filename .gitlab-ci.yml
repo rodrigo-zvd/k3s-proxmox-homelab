@@ -1,0 +1,73 @@
+# .gitlab-ci.yml
+#
+# Este é o manifesto declarativo para a pipeline do GitLab
+# que constrói nosso cluster do zero.
+
+stages:
+  - build_infra
+  - bootstrap_platform
+
+# --- Etapa 1: Provisionar VMs e K3s ---
+# (Esta etapa precisa de runners com Terraform e Ansible instalados)
+build_infra:
+  stage: build_infra
+  # Assume que o runner tem acesso ao Proxmox e às chaves SSH
+  script:
+    - echo "Provisioning infrastructure with Terraform..."
+    - cd terraform/
+    - terraform init
+    - terraform apply -auto-approve
+    
+    - echo "Waiting for SSH to be ready..."
+    - sleep 30 # Dá tempo para o cloud-init finalizar
+    
+    - echo "Installing K3s with Ansible..."
+    - cd ../ansible/
+    - ansible-playbook install-k3s.yml
+    
+  artifacts:
+    # Salva o Kubeconfig para a próxima etapa
+    paths:
+      - build/k3s-homelab.yaml
+
+# --- Etapa 2: Instalar a Plataforma (MetalLB, Nginx, Argo) ---
+# (Esta etapa precisa de runners com kubectl e Helm instalados)
+bootstrap_platform:
+  stage: bootstrap_platform
+  needs: [build_infra] # Depende da Etapa 1
+  
+  before_script:
+    # Configura o Kubeconfig salvo da etapa anterior
+    - export KUBECONFIG=$CI_PROJECT_DIR/build/k3s-homelab.yaml
+    # (Aqui você instalaria o helm/kubectl se não estiver na imagem)
+    - helm repo add metallb https://metallb.github.io/metallb
+    - helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    - helm repo add argo https://argoproj.github.io/argo-helm
+    - helm repo update
+
+  script:
+    - echo "Bootstrapping MetalLB..."
+    - kubectl create namespace metallb-system || echo "ns metallb-system already exists"
+    - helm install metallb metallb/metallb --namespace metallb-system
+    - echo "Waiting for MetalLB Operator..."
+    - kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app.kubernetes.io/name=metallb --timeout=300s
+    - kubectl apply -f helm-bootstrap/metallb-config.yml # Aplica os CRDs
+
+    - echo "Bootstrapping Ingress-Nginx..."
+    - kubectl create namespace ingress-nginx || echo "ns ingress-nginx already exists"
+    - helm install ingress-nginx ingress-nginx/ingress-nginx \
+        --namespace ingress-nginx \
+        -f helm-bootstrap/nginx-values.yml
+        
+    - echo "Bootstrapping ArgoCD..."
+    - kubectl create namespace argocd || echo "ns argocd already exists"
+    - helm install argocd argo/argo-cd \
+        --namespace argocd \
+        -f helm-bootstrap/argocd-values.yml
+
+  after_script:
+    # Apenas para verificação nos logs da pipeline
+    - echo "Platform Bootstrap Complete. Verifying services..."
+    - sleep 60 # Espera o MetalLB alocar os IPs
+    - kubectl get svc -n ingress-nginx
+    - kubectl get svc -n argocd

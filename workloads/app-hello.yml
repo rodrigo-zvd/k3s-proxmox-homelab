@@ -1,0 +1,40 @@
+# workloads/app-hello.yml
+#
+# Nossa primeira aplicação de teste gerenciada 100% pelo GitOps.
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-world
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # Chart Helm público de "Hello World"
+    repoURL: https://helm.github.io/examples
+    targetRevision: 0.2.0
+    chart: hello-world
+    helm:
+      values: |
+        # Diga ao app para usar nosso Ingress-Nginx
+        ingress:
+          enabled: true
+          className: nginx
+          # O hostname aponta para o IP do Nginx (.61)
+          hosts:
+            - host: hello.172.20.1.61.nip.io
+              paths:
+                - path: /
+                  pathType: ImplementationSpecific
+  destination:
+    server: https://kubernetes.default.svc
+    # Implante este app no namespace 'default'
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

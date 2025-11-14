@@ -1,0 +1,8 @@
+# helm-bootstrap/nginx-values.yml
+#
+# Nossa customização para o chart do Nginx.
+#
+controller:
+  service:
+    # Sobrescreve o padrão (NodePort) para LoadBalancer
+    type: LoadBalancer

@@ -1,0 +1,8 @@
+# helm-bootstrap/argocd-values.yml
+#
+# Nossa customização para o chart do ArgoCD.
+#
+server:
+  service:
+    # Sobrescreve o padrão (ClusterIP) para LoadBalancer
+    type: LoadBalancer
