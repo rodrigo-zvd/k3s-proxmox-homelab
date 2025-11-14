@@ -1,0 +1,31 @@
+# root-workloads-app.yml
+#
+# Este é o único manifesto que aplicamos manualmente (ou via pipeline).
+# Ele "semeia" o ArgoCD, dizendo a ele para monitorar nossa pasta 'workloads'.
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Este é o "App-Pai" que veremos na UI
+  name: workloads
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argoproj.io
+spec:
+  project: default
+  source:
+    # O repositório que ele deve monitorar
+    repoURL: https://github.com/rodrigo-zvd/k3s-proxmox-homelab.git
+    targetRevision: HEAD
+    # A pasta que ele deve monitorar
+    path: workloads
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  # Política de GitOps puro
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
