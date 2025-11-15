@@ -1,0 +1,22 @@
+# workloads/nginx-simple/01-deployment.yml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-nginx
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-nginx
+  template:
+    metadata:
+      labels:
+        app: hello-nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27.0-alpine # Imagem Nginx leve
+        ports:
+        - containerPort: 80

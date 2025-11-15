@@ -1,0 +1,15 @@
+# workloads/nginx-simple/02-service.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-nginx-svc
+  namespace: default
+spec:
+  type: ClusterIP # Apenas interno, o Ingress irá encontrá-lo
+  selector:
+    app: hello-nginx # Corresponde ao label do Deployment
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80

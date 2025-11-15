@@ -1,6 +1,6 @@
 # workloads/app-hello.yml
 #
-# Nossa primeira aplicação de teste gerenciada 100% pelo GitOps.
+# --- VERSÃO 2 (Raw Manifests) ---
 #
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -8,29 +8,22 @@ metadata:
   name: hello-world
   namespace: argocd
   finalizers:
-    - resources-finalizer.argocd.argoproj.io
+    - resources-finalizer.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
 spec:
   project: default
+  
+  # --- CORREÇÃO ---
+  # A fonte agora é o nosso próprio Git, apontando
+  # para o diretório de manifestos que criamos.
   source:
-    # Chart Helm público de "Hello World"
-    repoURL: https://helm.github.io/examples
-    targetRevision: 0.4.0
-    chart: hello-world
-    helm:
-      values: |
-        # Diga ao app para usar nosso Ingress-Nginx
-        ingress:
-          enabled: true
-          className: nginx
-          # O hostname aponta para o IP do Nginx (.61)
-          hosts:
-            - host: hello.172.20.1.61.nip.io
-              paths:
-                - path: /
-                  pathType: ImplementationSpecific
+    repoURL: https://github.com/rodrigo-zvd/k3s-proxmox-homelab.git
+    targetRevision: HEAD
+    path: workloads/nginx-simple # <--- APONTA PARA OS NOVOS ARQUIVOS
+    
   destination:
     server: https://kubernetes.default.svc
-    # Implante este app no namespace 'default'
     namespace: default
   syncPolicy:
     automated:
