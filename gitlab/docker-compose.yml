@@ -1,0 +1,20 @@
+# gitlab/docker-compose.yml
+#
+# Define o GitLab Server (Community Edition)
+#
+services:
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    container_name: gitlab
+    restart: always
+    hostname: 'gitlab.homelab.local' # O hostname que usaremos
+    ports:
+      - '80:80'    # HTTP
+      - '443:443'  # HTTPS (se você configurar)
+      - '2222:22'  # SSH (mapeado para a porta 2222 para não conflitar)
+    volumes:
+      # Os volumes de dados agora serão criados DENTRO da pasta gitlab/
+      - '$PWD/config:/etc/gitlab'
+      - '$PWD/logs:/var/log/gitlab'
+      - '$PWD/data:/var/opt/gitlab'
+    shm_size: '256m'

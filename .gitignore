@@ -16,3 +16,9 @@ inventory.ini
 
 # Generic
 .DS_Store
+
+# GitLab Server State (Local)
+# Ignora os dados, logs e configs gerados pelo docker-compose
+gitlab/config/
+gitlab/data/
+gitlab/logs/
