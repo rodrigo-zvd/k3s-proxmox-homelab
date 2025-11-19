@@ -1,0 +1,122 @@
+name: Homelab Bootstrap Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Botão para rodar manualmente
+
+jobs:
+  # --- JOB 1: Provisionar Infraestrutura (Terraform + Ansible) ---
+  build_infra:
+    runs-on: self-hosted # <--- Roda na sua máquina
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        # Configura a chave SSH temporariamente para o Ansible acessar o Proxmox
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.PROXMOX_HOST_IP }} >> ~/.ssh/known_hosts
+
+      - name: Terraform Init & Apply
+        working-directory: ./terraform
+        env:
+          # Mapeia segredos para variáveis que o Terraform lê (TF_VAR_)
+          TF_VAR_proxmox_api_token_id: ${{ secrets.PROXMOX_API_TOKEN_ID }}
+          TF_VAR_proxmox_api_token_secret: ${{ secrets.PROXMOX_API_TOKEN_SECRET }}
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Wait for VMs
+        run: sleep 30 # Aguarda SSH/Cloud-init
+
+      - name: Ansible Install K3s
+        working-directory: ./ansible
+        run: |
+          mkdir -p ../build
+          # O Ansible usa a chave configurada no ~/.ssh/id_ed25519
+          ansible-playbook install-k3s.yml
+
+      - name: Upload Kubeconfig Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubeconfig
+          path: build/k3s-homelab.yaml
+
+  # --- JOB 2: Bootstrap da Plataforma (Helm/Kubectl) ---
+  bootstrap_platform:
+    needs: build_infra
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Download Kubeconfig
+        uses: actions/download-artifact@v4
+        with:
+          name: kubeconfig
+          path: build
+
+      - name: Setup Helm Repos
+        run: |
+          export KUBECONFIG=$(pwd)/build/k3s-homelab.yaml
+          helm repo add metallb https://metallb.github.io/metallb
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+
+      - name: Deploy Platform Components
+        run: |
+          export KUBECONFIG=$(pwd)/build/k3s-homelab.yaml
+          
+          echo "--- Deploying MetalLB ---"
+          kubectl create namespace metallb-system --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install metallb metallb/metallb --namespace metallb-system
+          
+          echo "Waiting for MetalLB..."
+          kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app.kubernetes.io/name=metallb --timeout=300s || true
+          
+          # Aplica configuração (IP Pool)
+          kubectl apply -f helm-bootstrap/metallb-config.yml
+
+          echo "--- Deploying Ingress Nginx ---"
+          kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            -f helm-bootstrap/nginx-values.yml
+
+          echo "--- Deploying ArgoCD ---"
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install argocd argo/argo-cd \
+            --namespace argocd \
+            -f helm-bootstrap/argocd-values.yml
+
+  # --- JOB 3: Semear GitOps (App Raiz) ---
+  seed_gitops:
+    needs: bootstrap_platform
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Download Kubeconfig
+        uses: actions/download-artifact@v4
+        with:
+          name: kubeconfig
+          path: build
+
+      - name: Apply Root App
+        run: |
+          export KUBECONFIG=$(pwd)/build/k3s-homelab.yaml
+          # Aplica o app raiz que monitora a pasta 'workloads/'
+          kubectl apply -f root-workloads-app.yml --validate=false
+
+      - name: Verification
+        run: |
+           echo "Pipeline Finished. Waiting for Sync..."
+           sleep 60
+           curl -I http://hello.172.20.1.61.nip.io || echo "App not yet ready, but pipeline succeeded."
