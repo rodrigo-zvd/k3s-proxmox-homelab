@@ -1,17 +1,22 @@
 services:
   gitlab:
-    image: gitlab/gitlab-ce:latest
+    image: 'gitlab/gitlab-ce:latest'
     container_name: gitlab
     restart: always
-    hostname: gitlab.homelab
+    hostname: 'gitlab.homelab.local' # O hostname que usaremos
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab.homelab.local:80'
+        gitlab_rails['import_sources'] = ['github']
     ports:
-      - "8929:8080"
-      - "2289:22"
+      - '80:80'    # HTTP
+      - '2222:22'  # SSH
     volumes:
-      - ./config:/etc/gitlab
-      - ./logs:/var/log/gitlab
-      - ./data:/var/opt/gitlab
-    shm_size: "1g"
+      # Os volumes de dados agora serão criados DENTRO da pasta gitlab/
+      - '$PWD/config:/etc/gitlab'
+      - '$PWD/logs:/var/log/gitlab'
+      - '$PWD/data:/var/opt/gitlab'
+    shm_size: '256m'
 
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
@@ -20,5 +25,6 @@ services:
     depends_on:
       - gitlab
     volumes:
+      - '$PWD/runner-config:/etc/gitlab-runner'
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./runner-config:/etc/gitlab-runner
+      #
