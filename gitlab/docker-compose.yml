@@ -4,10 +4,6 @@ services:
     container_name: gitlab
     restart: always
     hostname: gitlab.homelab
-    environment:
-      GITLAB_OMNIBUS_CONFIG: |
-        external_url 'http://gitlab.homelab:8929'
-        gitlab_rails['gitlab_shell_ssh_port'] = 2289
     ports:
       - "8929:8080"
       - "2289:22"
