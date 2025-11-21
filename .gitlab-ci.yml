@@ -1,0 +1,7 @@
+stages:
+  - test
+
+check:
+  stage: test
+  script:
+    - echo "Pipeline funcionando: $(date)"

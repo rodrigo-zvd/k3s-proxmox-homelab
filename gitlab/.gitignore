@@ -1,0 +1,5 @@
+# Ignore GitLab data, logs, and configuration files
+/config/
+/logs/
+/data/
+/runner-config/
